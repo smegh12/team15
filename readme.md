@@ -1,5 +1,36 @@
 # NeuroPawn LSL Streamer
 
+## VS Code quick start
+
+1. Connect the Knight Board by USB-C.
+2. In VS Code, select the configured Python 3.14 environment.
+3. Press **F5** and choose **Neuropawn: Streamer**.
+4. Select the COM port shown for the Knight Board.
+5. Enable the desired channels and RLD, then click **Start Stream**.
+6. Press **F5** and choose **Neuropawn: LSL Receiver**, then select **NeuroPawnKnight** and click **Connect**.
+
+For an easier two-window run, choose **Neuropawn: Stream and Plot** from
+the VS Code Run and Debug compound configurations.
+
+## NeuroFocus essay assistant
+
+Launch **NeuroFocus: Essay Assistant** in VS Code to open the writing MVP.
+
+1. Start the NeuroPawn streamer and begin its LSL stream.
+2. Connect NeuroFocus to the `NeuroPawnKnight` stream.
+3. Record 4 seconds of a relaxed baseline.
+4. Record 4 seconds containing deliberate blinks.
+5. Record 4 seconds containing deliberate jaw clenches.
+6. Click **Finish calibration**.
+
+Use **Test double blink** and **Test jaw clench** before hardware testing if you
+need to verify the interface. Double blink currently dismisses the reminder
+control; jaw clench opens the AI brainstorming action.
+
+Claude Code integration is optional. Install the `claude` command or set the
+`CLAUDE_CODE_PATH` environment variable to its executable. If Claude Code is
+not available, NeuroFocus displays concise local writing prompts instead.
+
 Barebones Python GUI for NeuroPawn Knight / Knight IMU boards.
 
 It connects to the board over serial, sends channel and RLD commands, waits 1 second after every command, parses incoming packets, and publishes the data to an LSL stream.

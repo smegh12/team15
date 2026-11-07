@@ -34,6 +34,7 @@ class ReceiverApp(tk.Tk):
         self.axes = []
         self.streams = []
         self._after_id = None
+        self._stream_refresh_id = None
 
         self._build_ui()
 
@@ -76,6 +77,7 @@ class ReceiverApp(tk.Tk):
         )
 
         self.refresh_streams()
+        self._stream_refresh_id = self.after(2000, self.auto_refresh_streams)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     # -- stream discovery --------------------------------------------------
@@ -95,6 +97,14 @@ class ReceiverApp(tk.Tk):
             )
             self.stream_combo.current(idx)
         self.status_var.set(f"Found {len(names)} stream(s).")
+
+    def auto_refresh_streams(self):
+        if self.inlet is None:
+            selected_name = self.stream_var.get()
+            self.refresh_streams()
+            if selected_name and selected_name in self.stream_combo["values"]:
+                self.stream_combo.set(selected_name)
+        self._stream_refresh_id = self.after(2000, self.auto_refresh_streams)
 
     # -- connection --------------------------------------------------------
     def toggle_connect(self):
@@ -215,6 +225,8 @@ class ReceiverApp(tk.Tk):
         try:
             self.disconnect()
         finally:
+            if self._stream_refresh_id is not None:
+                self.after_cancel(self._stream_refresh_id)
             self.destroy()
 
 

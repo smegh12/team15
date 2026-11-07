@@ -1,0 +1,36 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Neuropawn: Streamer",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/knight_lsl_gui.py",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Neuropawn: LSL Receiver",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/knight_lsl_receiver.py",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "NeuroFocus: Essay Assistant",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/neurofocus.py",
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Neuropawn: Stream and Plot",
+      "configurations": [
+        "Neuropawn: Streamer",
+        "Neuropawn: LSL Receiver"
+      ],
+      "stopAll": true
+    }
+  ]
+}

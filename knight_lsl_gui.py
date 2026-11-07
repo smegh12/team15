@@ -216,9 +216,10 @@ class KnightWorker(threading.Thread):
         if board is None:
             self.log(
                 "Detection failed: no valid packets. Enable at least one "
-                "channel, then press Start again."
+                "channel, then press Start again. Starting an 8-channel "
+                "fallback stream."
             )
-            return
+            board = "eeg"
 
         self.board_type = board
         if board == "imu":
@@ -485,7 +486,11 @@ class App(tk.Tk):
             return
 
         gain = self.gain_var.get()
-        self.worker = KnightWorker(self.ser, gain, self.log)
+        self.worker = KnightWorker(
+            self.ser,
+            gain,
+            lambda msg: self.after(0, self.log, msg),
+        )
         # apply current filter selection to the worker
         self.worker.filter.set_notch(self.notch_freq)
         if self.bandpass_on:
