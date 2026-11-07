@@ -8,7 +8,7 @@ read from the stream metadata, so it automatically adapts to the non-IMU
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -58,12 +58,23 @@ class ReceiverApp(tk.Tk):
         )
         self.connect_btn.pack(side="left", padx=4)
 
+        self.eeg_only_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            top,
+            text="EEG only (8 channels)",
+            variable=self.eeg_only_var,
+            command=self.toggle_channel_view,
+        ).pack(side="left", padx=(12, 4))
+
         ttk.Label(top, text="Scale (uV):").pack(side="left", padx=(16, 4))
         self.scale_var = tk.DoubleVar(value=200.0)
         ttk.Spinbox(
             top, from_=1, to=100000, increment=50, width=8,
             textvariable=self.scale_var,
         ).pack(side="left", padx=4)
+        ttk.Button(
+            top, text="Export 5s CSV", command=self.export_csv
+        ).pack(side="left", padx=(12, 4))
 
         self.status_var = tk.StringVar(value="Not connected.")
         ttk.Label(self, textvariable=self.status_var).pack(
@@ -125,17 +136,35 @@ class ReceiverApp(tk.Tk):
         self.n_channels = full.channel_count()
         self.srate = full.nominal_srate() or 125.0
         self.labels = self._read_labels(full, self.n_channels)
+        self.display_indices = self._get_display_indices()
 
         n_samples = max(1, int(self.srate * WINDOW_SECONDS))
         self.buffer = np.zeros((self.n_channels, n_samples), dtype=np.float64)
 
         self._build_axes()
         self.connect_btn.configure(text="Disconnect")
-        self.status_var.set(
+        self.status_base = (
             f"Connected to {info.name()} - {self.n_channels} ch @ "
             f"{self.srate:.0f} Hz."
         )
+        self.status_var.set(self.status_base)
         self._after_id = self.after(REDRAW_MS, self._update)
+
+    def _get_display_indices(self):
+        if self.eeg_only_var.get():
+            indices = [
+                i for i, label in enumerate(self.labels)
+                if label.startswith("EXG")
+            ]
+            if indices:
+                return indices[:8]
+        return list(range(self.n_channels))
+
+    def toggle_channel_view(self):
+        if self.inlet is None:
+            return
+        self.display_indices = self._get_display_indices()
+        self._build_axes()
 
     def disconnect(self):
         if self._after_id is not None:
@@ -170,17 +199,17 @@ class ReceiverApp(tk.Tk):
         self.fig.clear()
         self.axes = []
         self.lines = []
-        n = self.n_channels
+        n = len(self.display_indices)
         n_samples = self.buffer.shape[1]
         t = np.linspace(-WINDOW_SECONDS, 0, n_samples)
-        for i in range(n):
-            ax = self.fig.add_subplot(n, 1, i + 1)
-            (line,) = ax.plot(t, self.buffer[i], linewidth=0.8)
-            ax.set_ylabel(self.labels[i], rotation=0, ha="right",
+        for display_row, channel_index in enumerate(self.display_indices):
+            ax = self.fig.add_subplot(n, 1, display_row + 1)
+            (line,) = ax.plot(t, self.buffer[channel_index], linewidth=0.8)
+            ax.set_ylabel(self.labels[channel_index], rotation=0, ha="right",
                           va="center", fontsize=8)
             ax.set_xlim(-WINDOW_SECONDS, 0)
             ax.set_yticks([])
-            if i < n - 1:
+            if display_row < n - 1:
                 ax.set_xticks([])
             else:
                 ax.set_xlabel("Time (s)")
@@ -205,20 +234,53 @@ class ReceiverApp(tk.Tk):
                 self.buffer[:, -k:] = data
 
             scale = self.scale_var.get()
-            for i, line in enumerate(self.lines):
-                line.set_ydata(self.buffer[i])
+            clipped_channels = []
+            for display_row, channel_index in enumerate(self.display_indices):
+                line = self.lines[display_row]
+                line.set_ydata(self.buffer[channel_index])
                 # EXG channels: fixed uV scale; IMU channels: autoscale
-                if self.labels[i].startswith("EXG"):
-                    self.axes[i].set_ylim(-scale, scale)
+                if self.labels[channel_index].startswith("EXG"):
+                    channel_min = float(np.min(self.buffer[channel_index]))
+                    channel_max = float(np.max(self.buffer[channel_index]))
+                    if channel_min < -scale or channel_max > scale:
+                        clipped_channels.append(self.labels[channel_index])
+                    self.axes[display_row].set_ylim(-scale, scale)
                 else:
-                    lo = float(np.min(self.buffer[i]))
-                    hi = float(np.max(self.buffer[i]))
+                    lo = float(np.min(self.buffer[channel_index]))
+                    hi = float(np.max(self.buffer[channel_index]))
                     if hi - lo < 1e-6:
                         lo, hi = lo - 1, hi + 1
-                    self.axes[i].set_ylim(lo, hi)
+                    self.axes[display_row].set_ylim(lo, hi)
+            if clipped_channels:
+                self.status_var.set(
+                    f"Connected: {len(self.display_indices)} EEG channels. "
+                    f"Outside +/-{scale:g} uV in the current view: "
+                    + ", ".join(clipped_channels)
+                )
+            elif hasattr(self, "status_base"):
+                self.status_var.set(self.status_base)
             self.canvas.draw_idle()
 
         self._after_id = self.after(REDRAW_MS, self._update)
+
+    def export_csv(self):
+        if self.buffer is None or not getattr(self, "display_indices", None):
+            messagebox.showerror("Nothing to export", "Connect to a stream first.")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            initialfile="neuropawn_last_5_seconds.csv",
+        )
+        if not path:
+            return
+        indices = self.display_indices
+        n_samples = self.buffer.shape[1]
+        time_axis = np.arange(n_samples, dtype=np.float64) / self.srate - WINDOW_SECONDS
+        header = "time_s," + ",".join(self.labels[i] for i in indices)
+        rows = np.column_stack((time_axis, self.buffer[indices].T))
+        np.savetxt(path, rows, delimiter=",", header=header, comments="")
+        self.status_var.set(f"Exported {n_samples} samples to {path}")
 
     # -- shutdown ----------------------------------------------------------
     def on_close(self):

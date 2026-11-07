@@ -68,11 +68,12 @@ START_STREAM_SENTINEL = "__START_STREAM__"
 GAIN_VALUES = [1, 2, 3, 4, 6, 8, 12]
 DEFAULT_GAIN = 12
 CMD_PAUSE = 2      # seconds to pause after every command
+AFE_GAIN = 79.57
 
 
 def eeg_scale(gain):
     """microvolts-per-count scaling factor for a given gain."""
-    return 4.0 / (pow(2, 15) - 1) / gain * 1_000_000.0
+    return 4.0 / (pow(2, 15) - 1) / AFE_GAIN / gain * 1_000_000.0
 
 
 # ---------------------------------------------------------------------------
