@@ -43,25 +43,33 @@ async def main(a):
     coach = Coach()
     src = DemoSource() if a.demo else LSLSource()
     chunk_s = a.chunk or (40 if a.demo else 180)
-    calib_s = a.calib or (10 if a.demo else 20)
-    eng = FocusEngine(src.fs, src.n_ch, calib_s=calib_s, factor=a.factor)
+    eng = FocusEngine(src.fs, src.n_ch, factor=a.factor)
     clients = set()
+    flags = {"just_calibrated": False}
     hello = {"type": "hello", "fs": src.fs, "demo": a.demo, "chunk_s": chunk_s,
-             "calib_s": calib_s, "n_ch": src.n_ch, "labels": src.labels,
+             "n_ch": src.n_ch, "labels": src.labels,
              "ai": coach.client is not None, "model": coach.model}
+
+    def send(obj):
+        websockets.broadcast(clients, json.dumps(obj))
 
     async def handler(ws):
         clients.add(ws)
         await ws.send(json.dumps(hello))
         try:
             async for msg in ws:
-                if json.loads(msg).get("cmd") == "calibrate":
-                    eng.start_calibration(time.monotonic())
+                m = json.loads(msg)
+                if m.get("cmd") != "calib_phase":
+                    continue
+                ph = m.get("phase")
+                eng.calib_phase(ph, time.monotonic())
+                if a.demo:
+                    src.set_mode(ph)
+                if ph == "done":
+                    flags["just_calibrated"] = True
+                    send({"type": "calib", "ok": not eng.calib_failed, "info": eng.calib_info})
         finally:
             clients.discard(ws)
-
-    def send(obj):
-        websockets.broadcast(clients, json.dumps(obj))
 
     handler_cls = functools.partial(Quiet, directory=str(HERE / "web"))
     httpd = ThreadingHTTPServer(("localhost", a.http_port), handler_cls)
@@ -71,20 +79,21 @@ async def main(a):
     webbrowser.open(url)
 
     loop, loop_t = asyncio.get_running_loop(), time.monotonic()
-    t_state, t_chunk, n_chunk, auto = 0.0, loop_t, 0, a.demo
+    t_state, t_chunk, n_chunk = 0.0, loop_t, 0
     async with websockets.serve(handler, "localhost", a.port):
         while True:
             await asyncio.sleep(0.1)
             now = time.monotonic()
+            if flags["just_calibrated"]:  # start check-ins fresh after calibration
+                flags["just_calibrated"] = False
+                t_chunk = now
+                eng.pop_chunk()
             data = src.read()
             frame = {"type": "frame", "chunk_left": max(0, chunk_s - (now - t_chunk))}
             if data is not None:
                 bands, chans = eng.push(data)
                 frame["bands"] = {k: np.round(v, 2).tolist() for k, v in bands.items()}
                 frame["ch"] = {k: np.round(v, 1).tolist() for k, v in chans.items()}
-            if auto and eng.filled >= eng.N:
-                eng.start_calibration(now)
-                auto = False
             if now - t_state >= 0.5:
                 t_state, frame["state"] = now, eng.update(now)
             send(frame)
@@ -104,11 +113,10 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--demo", action="store_true", help="simulated EEG, no hardware")
     ap.add_argument("--chunk", type=int, default=0, help="check-in length in seconds (180)")
-    ap.add_argument("--calib", type=int, default=0, help="calibration seconds (20)")
     ap.add_argument("--factor", type=float, default=2.0,
-                    help="movement vs calibration that counts as drifting (lower = more sensitive)")
+                    help="minimum gap between reading and tracking movement (safety floor)")
     ap.add_argument("--trigger", type=float, default=0.4,
-                    help="share of the check-in spent drifting before Pip says anything")
+                    help="share of the check-in spent drifting before a check-in message")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--http-port", type=int, default=8000)
     try:

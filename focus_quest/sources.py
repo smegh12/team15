@@ -34,14 +34,25 @@ class LSLSource:
 
 
 class DemoSource:
-    """Fake EEG: 40 s still (focused), then 40 s with big eye movements (drifting)."""
+    """Fake EEG that follows the calibration game, then alternates 40 s focused / 40 s drifting.
+
+    track: big eye movements (dot going to the screen edges)
+    read:  small reading saccades
+    after calibration: reading-sized movements, with big look-arounds every other 40 s."""
     fs, n_ch = 125.0, 8
     labels = [f"CH{i + 1}" for i in range(8)]
 
     def __init__(self):
         self.t0, self.n, self.rng = time.monotonic(), 0, np.random.default_rng(1)
         self.gain = 0.7 + 0.6 * self.rng.random(self.n_ch)
-        self.front = np.array([1, 1, .7, .7, .4, .4, .25, .25])
+        self.front = np.array([1, 1, .7, .7, .4, .4, .25, .25])  # eye signal strongest up front
+        self.mode, self.cycle0 = None, 0.0
+
+    def set_mode(self, phase):
+        if phase in ("track", "read"):
+            self.mode = phase
+        else:  # done / cancel: restart the focused/drifting cycle from now
+            self.mode, self.cycle0 = None, self.n / self.fs
 
     def read(self):
         target = int((time.monotonic() - self.t0) * self.fs)
@@ -50,11 +61,18 @@ class DemoSource:
             return None
         t = (self.n + np.arange(k)) / self.fs
         self.n = target
-        drift = ((t // 40) % 2 == 1).astype(float)
         w = 2 * np.pi
-        eye = 45 * np.sign(np.sin(w * 0.8 * t + 2 * np.sin(w * 0.11 * t)))  # saccade-like jumps
+        reading = 6 * np.sign(np.sin(w * 3.5 * t))  # small, quick reading saccades
+        if self.mode == "track":
+            eye = 90 * np.sign(np.sin(w * 0.33 * t)) + 60 * np.sign(np.sin(w * 0.5 * t + 1))
+        elif self.mode == "read":
+            eye = reading
+        else:
+            drift = ((((t - self.cycle0) // 40) % 2) == 1).astype(float)
+            look = 45 * np.sign(np.sin(w * 0.8 * t + 2 * np.sin(w * 0.11 * t)))
+            eye = reading * (1 - drift) + look * drift
         return np.array([self.gain[c] * (6 * np.sin(w * 10 * t + c * .7)
                                          + 5 * np.sin(w * 6 * t + c)
                                          + 8 * np.sin(w * 20 * t + c * .5))
-                         + self.front[c] * eye * drift
+                         + self.front[c] * eye
                          + self.rng.normal(0, 3, k) for c in range(self.n_ch)])

@@ -9,7 +9,7 @@
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;color:var(--fg);font:14px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 background:radial-gradient(1200px 600px at 20% -10%,#1a2350 0,transparent 60%),radial-gradient(900px 500px at 100% 0,#2a1a4d 0,transparent 55%),var(--bg)}
-.app{max-width:1240px;margin:0 auto;padding:18px 18px 6px;display:flex;flex-direction:column;gap:14px;min-height:100vh}
+.app{max-width:1240px;margin:0 auto;padding:18px 18px 6px;display:flex;flex-direction:column;gap:14px}
 header{display:flex;align-items:center;gap:12px}
 h1{margin:0;font-size:20px;letter-spacing:.18em}
 h1 b{color:#f472b6}
@@ -28,7 +28,7 @@ button.sm:active{transform:none}
 #badge{transition:color .3s}
 .bar{height:16px;border-radius:9px;background:#0a1028;border:1px solid var(--line);overflow:hidden;margin-top:8px}
 #fill{height:100%;width:50%;background:var(--blue);transition:width .4s,background .4s;box-shadow:0 0 14px currentColor}
-.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:14px;flex:1}
+.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:14px;align-items:start}
 @media(max-width:900px){.grid{grid-template-columns:1fr}}
 .col{display:flex;flex-direction:column;gap:14px}
 .panel{display:flex;flex-direction:column;padding:0;overflow:hidden}
@@ -37,15 +37,44 @@ button.sm:active{transform:none}
 .scope{position:relative;background:repeating-linear-gradient(0deg,#ffffff06 0 1px,transparent 1px 36px)}
 #bandScope{height:210px}
 #chScope{height:400px}
+.collapsed .scope,.collapsed #chMode,.collapsed #chInfo{display:none}
+.collapsed .ph{border-bottom:0}
 canvas{position:absolute;inset:0;width:100%;height:100%}
-#chat{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px;min-height:300px}
-.msg{display:flex;gap:10px;align-items:flex-end;animation:pop .25s ease}
+#chat{height:220px;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;scrollbar-width:none;
+-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 56px);mask-image:linear-gradient(to bottom,transparent 0,#000 56px)}
+#chat::-webkit-scrollbar{display:none}
+#chat:before{content:"";flex:1}
+.msg{border-left:3px solid var(--bad);background:#141c3a;border-radius:8px;padding:8px 12px;font-size:14px;line-height:1.35;animation:pop .3s ease;transition:opacity .7s}
+.msg small{display:block;color:var(--mut);font-size:10px;margin-top:3px;letter-spacing:.06em}
+.msg.sys{border-left-color:#33437f;color:var(--mut);font-size:12px;background:transparent}
+.msg.gone{opacity:0}
 @keyframes pop{from{transform:translateY(8px);opacity:0}}
-.av{width:30px;height:30px;border-radius:50%;background:#2b37a0;display:grid;place-items:center;font-size:13px;font-weight:700;flex:none}
-.bub{background:#1b2650;border:1px solid #33437f;border-radius:14px 14px 14px 4px;padding:10px 14px;font-size:15px;line-height:1.35;max-width:85%}
-.bub small{display:block;color:var(--mut);font-size:10px;margin-top:4px;letter-spacing:.08em}
-.sys{align-self:center;color:var(--mut);font-size:12px;text-align:center;padding:2px 8px}
-.fine{text-align:right;color:var(--mut);font-size:10px;opacity:.5;letter-spacing:.05em;padding:2px 4px}
+.kv{display:grid;grid-template-columns:1fr auto;gap:6px 12px;font-size:13px}
+.kv span:nth-child(odd){color:var(--mut)}
+.fine{text-align:right;color:var(--mut);font-size:10px;opacity:.5;letter-spacing:.05em;padding:2px 4px 10px}
+/* calibration game overlay */
+.overlay{position:fixed;inset:0;z-index:50;background:radial-gradient(circle at 50% 50%,#10173a,#04060e 75%);opacity:0;pointer-events:none;transition:opacity .9s}
+.overlay.show{opacity:1;pointer-events:auto}
+#calibMsg{position:absolute;top:28px;left:0;right:0;text-align:center;font-size:16px;letter-spacing:.06em}
+#calibBarW{position:absolute;top:62px;left:50%;width:240px;transform:translateX(-50%);height:4px;background:#1b2650;border-radius:2px;overflow:hidden}
+#calibBar{height:100%;width:0;background:var(--blue);transition:width .5s}
+#ball{position:absolute;left:50%;top:50%;width:26px;height:26px;border-radius:50%;background:#f472b6;box-shadow:0 0 24px #f472b6,0 0 60px #f472b688;
+transform:translate(-50%,-50%);opacity:0;transition:left .75s cubic-bezier(.45,0,.55,1),top .75s cubic-bezier(.45,0,.55,1),opacity .4s}
+#calibText{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(640px,calc(100% - 48px));font:20px/1.7 Georgia,serif;opacity:0;transition:opacity .5s}
+#calibCancel{position:absolute;bottom:24px;right:24px}
+/* calendar */
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;padding:14px}
+@media(max-width:900px){.week{grid-template-columns:repeat(2,1fr)!important}}
+.day{background:#0c1226;border:1px solid var(--line);border-radius:10px;padding:10px;min-height:96px;display:flex;flex-direction:column;gap:6px}
+.day.today{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue) inset}
+.day.past{opacity:.6}
+.day-h{display:flex;justify-content:space-between;align-items:baseline;font-size:10px;color:var(--mut);letter-spacing:.12em}
+.day-n{font-size:17px;font-weight:700;color:var(--fg);letter-spacing:0}
+.day.today .day-n{color:var(--blue)}
+.day-body{font-size:11px;line-height:1.5}
+.day-body ul{margin:0;padding-left:14px}
+.day-empty{color:var(--mut);opacity:.6}
+#clock{font-size:10px;letter-spacing:.04em}
 </style>
 </head>
 <body>
@@ -65,37 +94,67 @@ canvas{position:absolute;inset:0;width:100%;height:100%}
         <div class="ph">BRAIN WAVES<span class="sp">channel average</span></div>
         <div class="scope" id="bandScope"><canvas id="cvB"></canvas></div>
       </section>
-      <section class="card panel">
-        <div class="ph">CHANNELS<span class="sp" id="chInfo">1-40 Hz filtered</span><button class="sm" id="chMode">SHOW RAW</button></div>
+      <section class="card panel" id="chPanel">
+        <div class="ph">CHANNELS<span class="sp" id="chInfo">1-40 Hz filtered</span>
+          <button class="sm" id="chMode">SHOW RAW</button><button class="sm" id="chToggle">HIDE</button></div>
         <div class="scope" id="chScope"><canvas id="cvC"></canvas></div>
       </section>
     </div>
-    <section class="card panel">
-      <div class="ph">PIP · CHECK-INS<span class="sp" id="ai"></span></div>
-      <div id="chat"></div>
-    </section>
+    <div class="col">
+      <section class="card panel">
+        <div class="ph">CHECK-INS</div>
+        <div id="chat"></div>
+      </section>
+      <section class="card">
+        <div class="lbl">CALIBRATION</div>
+        <div class="kv">
+          <span>Status</span><span id="cState">not calibrated</span>
+          <span>Reading movement</span><span id="cRead">–</span>
+          <span>Tracking movement</span><span id="cTrack">–</span>
+          <span>Drift threshold</span><span id="cThr">–</span>
+        </div>
+      </section>
+    </div>
   </main>
+
+  <!-- ===================== CALENDAR (code in web/calendar.js) ===================== -->
+  <section class="card panel" id="calendar">
+    <div class="ph">THIS WEEK<span class="sp" id="clock"></span></div>
+    <div class="week" id="week"></div>
+  </section>
+  <!-- =================================== /CALENDAR =================================== -->
+
   <div class="fine"><span id="next">next check-in --:--</span> · <span id="last">no check-ins yet</span></div>
 </div>
+
+<div class="overlay" id="calib">
+  <div id="calibMsg"></div>
+  <div id="calibBarW"><div id="calibBar"></div></div>
+  <div id="ball"></div>
+  <div id="calibText"></div>
+  <button class="sm" id="calibCancel">CANCEL (Esc)</button>
+</div>
+
 <script>
 const BANDS=[['theta','THETA','4-8 Hz','#2dd4bf'],['alpha','ALPHA','8-13 Hz','#fbbf24'],['beta','BETA','13-30 Hz','#f472b6']];
 const CHCOL=['#60a5fa','#a78bfa','#f472b6','#fb923c','#facc15','#4ade80','#2dd4bf','#38bdf8'];
 const $=id=>document.getElementById(id);
 const ST={idle:['STANDBY','#7f8bb5'],filling:['WARMING UP','#7f8bb5'],calibrating:['CALIBRATING','#60a5fa'],
 focused:['FOCUSED','#34d399'],distracted:['DRIFTING','#fb7185']};
-let fs=125,SHOW=375,NCH=8,LABELS=[],calibS=60,streak=0,ws,chMode='clean';
+let fs=125,SHOW=375,NCH=8,LABELS=[],streak=0,ws,chMode='clean',autoCal=false;
 let bandBuf={},chBuf={clean:[],raw:[]};
 function alloc(){SHOW=Math.round(fs*3);BANDS.forEach(([k])=>bandBuf[k]=new Float32Array(SHOW));
   for(const m of ['clean','raw'])chBuf[m]=Array.from({length:NCH},()=>new Float32Array(SHOW))}
 alloc();
 const mmss=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function push(b,a){const n=Math.min(a.length,b.length);b.copyWithin(0,n);for(let i=0;i<n;i++)b[b.length-n+i]=a[a.length-n+i]}
+
 function drawRows(cv,rows,small){
-  const g=cv.getContext('2d'),r=cv.getBoundingClientRect(),d=devicePixelRatio||1;
-  const W=Math.round(r.width*d),H=Math.round(r.height*d);
+  const r=cv.getBoundingClientRect();if(!r.width||!r.height||!rows.length)return;
+  const g=cv.getContext('2d'),d=devicePixelRatio||1,W=Math.round(r.width*d),H=Math.round(r.height*d);
   if(cv.width!==W||cv.height!==H){cv.width=W;cv.height=H}
   g.setTransform(d,0,0,d,0,0);g.clearRect(0,0,r.width,r.height);
-  if(!rows.length)return;
   const lh=r.height/rows.length;
   rows.forEach((row,i)=>{
     const b=row.data,n=b.length,cy=lh*(i+.5);let s=0;for(let j=0;j<n;j++)s+=b[j]*b[j];
@@ -113,49 +172,91 @@ function draw(){
   drawRows($('cvC'),chBuf[chMode].map((b,i)=>({data:b,color:CHCOL[i%CHCOL.length],label:LABELS[i]||'CH'+(i+1)})),true);
   requestAnimationFrame(draw);
 }
+
+/* check-ins: newest at the bottom, max 6, each fades out after a while */
 function say(text,kind,meta){
   const c=$('chat'),e=document.createElement('div');
-  if(kind==='sys'){e.className='sys';e.textContent=text}
-  else{e.className='msg';e.innerHTML='<div class="av">P</div><div class="bub"><span></span><small></small></div>';
-    e.querySelector('span').textContent=text;e.querySelector('small').textContent=meta||''}
-  c.append(e);c.scrollTop=1e9;
+  e.className='msg'+(kind==='sys'?' sys':'');e.textContent=text;
+  if(meta){const s=document.createElement('small');s.textContent=meta;e.append(s)}
+  c.append(e);
+  while(c.querySelectorAll('.msg').length>6)c.querySelector('.msg').remove();
+  c.scrollTo({top:c.scrollHeight,behavior:'smooth'});
+  setTimeout(()=>{e.classList.add('gone');setTimeout(()=>e.remove(),800)},kind==='sys'?45000:120000);
 }
+
 function onState(s){
   const [lab,col]=ST[s.state]||ST.idle;
-  $('badge').textContent=s.state==='calibrating'?'CALIBRATING '+Math.ceil(s.left)+'s':lab;$('badge').style.color=col;
+  $('badge').textContent=lab;$('badge').style.color=col;
   const f=$('fill');f.style.color=col;f.style.background=col;
-  f.style.width=(s.score==null?(s.state==='calibrating'?100*(1-s.left/Math.max(1,calibS)):50)
-    :Math.max(3,s.score*100))+'%';
+  f.style.width=(s.score==null?50:Math.max(3,s.score*100))+'%';
   if(s.state==='focused')streak+=.5;else if(s.state==='distracted')streak=0;
   $('streak').textContent=mmss(streak);
-  if(s.calib_failed&&!onState.warned){onState.warned=1;say('Calibration got no data. Check the board is streaming, then try again.','sys')}
 }
+
+/* calibration game: track the dot to the screen edges, then read a passage */
+const PASSAGE='Team 15, “The FocusMaxxers”, brings you the focus tool that will bring your wandering mind back on track to whatever assignment, reading, or project you have. It’s a tool that pushes you in the right path of focus while also being a motivator, tracking data on your level of focusedness each day and reporting back how you did on each day of your work week.';
+const PATH=[[50,50],[4,50],[96,50],[50,50],[50,6],[50,94],[4,50],[96,50],[50,6],[50,94],[6,8],[94,92],[94,8],[6,92],[50,50]];
+let calRun=0;
+function phase(p){if(ws&&ws.readyState===1)ws.send(JSON.stringify({cmd:'calib_phase',phase:p}))}
+function ballAt([x,y]){$('ball').style.left=x+'%';$('ball').style.top=y+'%'}
+async function runCalibration(){
+  const id=++calRun,live=()=>id===calRun;
+  const ov=$('calib'),b=$('ball'),tx=$('calibText'),bar=$('calibBar');
+  ballAt([50,50]);b.style.opacity=0;tx.style.opacity=0;bar.style.transition='width .5s';bar.style.width='0%';
+  $('calibMsg').textContent='Follow the dot with your eyes. Keep your head still.';
+  $('cState').textContent='calibrating...';
+  ov.classList.add('show');await sleep(2500);if(!live())return;
+  b.style.opacity=1;phase('track');
+  for(let i=0;i<PATH.length;i++){ballAt(PATH[i]);bar.style.width=(60*(i+1)/PATH.length)+'%';await sleep(1100);if(!live())return}
+  b.style.opacity=0;
+  $('calibMsg').textContent='Now read this at your normal pace.';
+  tx.textContent=PASSAGE;tx.style.opacity=1;
+  phase('read');bar.style.transition='width 18s linear';bar.style.width='100%';
+  await sleep(18000);if(!live())return;
+  phase('done');tx.style.opacity=0;$('calibMsg').textContent='Calibration complete.';
+  await sleep(1300);if(!live())return;
+  ov.classList.remove('show');
+}
+function cancelCalibration(){
+  if(!$('calib').classList.contains('show'))return;
+  calRun++;phase('cancel');$('calib').classList.remove('show');$('cState').textContent='cancelled';
+}
+
 function connect(){
   ws=new WebSocket('ws://localhost:8765');
   ws.onopen=()=>{$('dot').className='dot on';$('conn').textContent='connected'};
   ws.onclose=()=>{$('dot').className='dot';$('conn').textContent='reconnecting...';setTimeout(connect,1500)};
   ws.onmessage=e=>{
     const m=JSON.parse(e.data);
-    if(m.type==='hello'){fs=m.fs;NCH=m.n_ch;LABELS=m.labels||[];calibS=m.calib_s;alloc();
-      $('ai').textContent=m.ai?'AI: '+m.model:'built-in phrases';$('chat').innerHTML='';
-      say(m.demo?'Demo mode: simulated signal. Calibrates automatically, then alternates focused and drifting every 40 s.'
-                :'Press CALIBRATE, then do your normal work on the screen for '+m.calib_s+' seconds without looking away.','sys');
-      say('Check-ins appear here only if you look around a lot during a check-in.','sys');}
+    if(m.type==='hello'){fs=m.fs;NCH=m.n_ch;LABELS=m.labels||[];alloc();$('chat').innerHTML='';
+      say(m.demo?'Demo mode: simulated signal. Calibration starts by itself, then it alternates focused and drifting every 40 s.'
+                :'Press CALIBRATE: follow the dot, then read a short passage.','sys');
+      if(m.demo&&!autoCal){autoCal=true;setTimeout(runCalibration,2500)}}
     else if(m.type==='frame'){
       if(m.bands)for(const k in m.bands)push(bandBuf[k],m.bands[k]);
       if(m.ch)for(const md of ['clean','raw'])m.ch[md].forEach((a,i)=>{if(chBuf[md][i])push(chBuf[md][i],a)});
       $('next').textContent='next check-in '+mmss(m.chunk_left);if(m.state)onState(m.state)}
+    else if(m.type==='calib'){
+      if(m.ok){$('cState').textContent='calibrated';$('cRead').textContent=m.info.read+' µV';
+        $('cTrack').textContent=m.info.track+' µV';$('cThr').textContent=m.info.thr+' µV';
+        say('Calibrated. Reading-sized eye movements count as focused; big looks around count as drifting.','sys')}
+      else{$('cState').textContent='failed: no signal';
+        say('Calibration got no data. Check the board is streaming, then press CALIBRATE again.','sys')}}
     else if(m.type==='checkin'){
       $('last').textContent='last check-in #'+m.n+': '+Math.round((1-m.summary.distracted_frac)*100)+'% focused'}
-    else if(m.type==='coach')say(m.text,'coach','check-in '+m.n+' · drifting '+Math.round(m.summary.distracted_frac*100)+'%');
+    else if(m.type==='coach')say(m.text,'coach','check-in '+m.n+' · looking around '+Math.round(m.summary.distracted_frac*100)+'%');
   };
 }
-$('cal').onclick=()=>{if(ws&&ws.readyState===1)ws.send(JSON.stringify({cmd:'calibrate'}));
-  say('Calibrating. Keep working on the screen and don\'t look away.','sys');onState.warned=0};
+$('cal').onclick=runCalibration;
+$('calibCancel').onclick=cancelCalibration;
+document.addEventListener('keydown',e=>{if(e.key==='Escape')cancelCalibration()});
 $('chMode').onclick=()=>{chMode=chMode==='clean'?'raw':'clean';
   $('chMode').textContent=chMode==='clean'?'SHOW RAW':'SHOW FILTERED';
   $('chInfo').textContent=chMode==='clean'?'1-40 Hz filtered':'raw (offset removed)'};
+$('chToggle').onclick=()=>{const p=$('chPanel');p.classList.toggle('collapsed');
+  $('chToggle').textContent=p.classList.contains('collapsed')?'SHOW':'HIDE'};
 connect();requestAnimationFrame(draw);
 </script>
+<script src="calendar.js"></script>
 </body>
 </html>

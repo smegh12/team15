@@ -1,8 +1,10 @@
-"""Focus vs drift from eye/head movement only.
+"""Focus vs drift from eye/head movement, calibrated with a dot-tracking game.
 
-Looking around shows up in EEG as large, slow deflections (0.5-10 Hz). We measure
-how big those are on each channel, compare to a calibration baseline recorded while
-the user works normally, and call it DRIFTING when movement stays well above it."""
+Eye and head movements show up in EEG as large, slow deflections (0.5-10 Hz). During
+calibration we measure them per channel twice: while the user tracks a dot across the
+whole screen (big movements) and while they read a short passage (small movements).
+The drift threshold sits between the two, so reading counts as focused and big looks
+around count as drifting."""
 import numpy as np
 from scipy.signal import butter, iirnotch, sosfilt, sosfilt_zi, tf2sos
 
@@ -20,28 +22,36 @@ def display_sos(fs):
 
 
 class FocusEngine:
-    def __init__(self, fs, n_ch, calib_s=20.0, factor=2.0, on_s=1.0, off_s=2.0, win_s=2.0):
-        self.fs, self.calib_s, self.factor = fs, calib_s, factor
-        self.on_s, self.off_s = on_s, off_s
+    def __init__(self, fs, n_ch, factor=2.0, on_s=1.0, off_s=2.0, win_s=2.0):
+        self.fs, self.factor, self.on_s, self.off_s, self.win_s = fs, factor, on_s, off_s, win_s
         self.N = int(fs * win_s)
         self.buf, self.filled = np.zeros((n_ch, self.N)), 0
         self.sos = {b: butter(3, e, btype="band", fs=fs, output="sos") for b, e in BANDS.items()}
         self.dsos = display_sos(fs)
         self.esos = butter(2, (0.5, 10.0), btype="band", fs=fs, output="sos")  # eye/head band
         self.zi = self.dzi = self.ezi = self.dc = None
-        self.mode, self.calib, self.t_cal, self.base = "idle", [], 0.0, None
+        self.mode, self.phase, self.phase_t = "idle", None, 0.0
+        self.samples = {"track": [], "read": []}
+        self.thr, self.calib_info, self.calib_failed = None, None, False
         self.drifting, self.move_since, self.calm_since = False, None, None
-        self.calib_failed = False
         self.reset_chunk()
 
     def reset_chunk(self):
         self.c = {"steps": 0, "dist": 0}
 
-    def start_calibration(self, now):
-        self.mode, self.calib, self.t_cal = "calibrating", [], now
-        self.drifting, self.move_since, self.calm_since = False, None, None
-        self.calib_failed = False
-        self.reset_chunk()
+    def calib_phase(self, phase, now):
+        """Called by the calibration game: 'track', 'read', 'done' or 'cancel'."""
+        if phase == "track":
+            self.samples = {"track": [], "read": []}
+            self.calib_failed = False
+        if phase in ("track", "read"):
+            self.mode, self.phase, self.phase_t = "calibrating", phase, now
+            self.drifting, self.move_since, self.calm_since = False, None, None
+        elif phase == "done":
+            self._finish()
+        elif phase == "cancel":
+            self.mode = "monitoring" if self.thr is not None else "idle"
+            self.phase = None
 
     def push(self, data):
         """data: (n_ch, k) new samples -> (band traces of channel average, per-channel traces)."""
@@ -66,34 +76,32 @@ class FocusEngine:
         return bands, {"clean": clean, "raw": data - self.dc[:, None]}
 
     def update(self, now):
-        s = {"state": "idle", "score": None, "left": 0.0, "calib_failed": self.calib_failed}
+        s = {"state": "idle", "score": None}
         if self.filled < self.N:
             s["state"] = "filling"
             return s
         amp = self.buf.std(axis=1)  # movement level per channel (uV)
         if self.mode == "calibrating":
-            self.calib.append(amp)
-            s["state"], s["left"] = "calibrating", max(0.0, self.calib_s - (now - self.t_cal))
-            if s["left"] <= 0:
-                self._finish()
+            if self.phase in self.samples and now - self.phase_t >= self.win_s:
+                self.samples[self.phase].append(amp)
+            s["state"] = "calibrating"
             return s
         if self.mode != "monitoring":
             return s
-        ratio = float(np.sort(amp / self.base)[-3:].mean())  # 3 most-moving channels
-        if ratio > self.factor:  # moving a lot
+        ratio = float(np.sort(amp / self.thr)[-3:].mean())  # 3 most-moving channels
+        if ratio > 1.0:  # bigger than the reading/tracking midpoint
             self.calm_since = None
             self.move_since = self.move_since or now
             if now - self.move_since >= self.on_s:
                 self.drifting = True
-        elif ratio < self.factor * 0.8:  # clearly still
+        elif ratio < 0.8:  # clearly reading-sized or still
             self.move_since = None
             self.calm_since = self.calm_since or now
             if now - self.calm_since >= self.off_s:
                 self.drifting = False
-        else:  # in between: keep the current state
+        else:
             self.move_since = self.calm_since = None
-        focus = 1 - (ratio - 1) / (2 * max(self.factor - 1, 0.1))
-        s["score"] = round(float(np.clip(focus, 0, 1)), 3)
+        s["score"] = round(float(np.clip(1 - 0.5 * ratio, 0, 1)), 3)
         s["movement"] = round(ratio, 2)
         s["state"] = "distracted" if self.drifting else "focused"
         self.c["steps"] += 1
@@ -101,11 +109,20 @@ class FocusEngine:
         return s
 
     def _finish(self):
-        if len(self.calib) < 5:
-            self.mode, self.calib_failed = "idle", True
+        tr, rd = self.samples["track"], self.samples["read"]
+        self.phase = None
+        if len(tr) < 4 or len(rd) < 4:
+            self.calib_failed = True
+            self.mode = "monitoring" if self.thr is not None else "idle"
             return
-        self.base = np.maximum(np.median(np.array(self.calib), axis=0), 0.5)
+        read = np.maximum(np.median(np.array(rd), axis=0), 0.5)
+        track = np.maximum(np.median(np.array(tr), axis=0), read * self.factor)
+        self.thr = np.sqrt(read * track)  # geometric midpoint between reading and tracking
+        self.calib_info = {"read": round(float(np.median(read)), 1),
+                           "track": round(float(np.median(track)), 1),
+                           "thr": round(float(np.median(self.thr)), 1)}
         self.mode = "monitoring"
+        self.drifting, self.move_since, self.calm_since = False, None, None
         self.reset_chunk()
 
     def pop_chunk(self):
