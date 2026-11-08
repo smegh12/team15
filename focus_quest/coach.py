@@ -1,14 +1,14 @@
 """'Pip': short, plain check-in messages from the OpenAI API (offline fallback included)."""
 import os
 
-SYSTEM = ("You write short check-in messages for a study app that tracks focus from EEG. "
-          "You get a numeric summary of the user's last few minutes. Write ONE calm, plain "
-          "sentence of at most 10 words suggesting they refocus. No emoji, no exclamation "
-          "marks, no cheerleading, no quotes.")
-FALLBACK = ["Focus has dipped for a bit. Ready to refocus?",
-            "Looks like you drifted. Back to the task?",
-            "Quick reset: take a breath and refocus.",
-            "Attention has been low for a while. Short break?"]
+SYSTEM = ("You write short check-in messages for a study app. It detects when the user is "
+          "looking around (eyes or head moving a lot) instead of at their work. Write ONE "
+          "calm, plain sentence of at most 10 words suggesting they refocus. No emoji, no "
+          "exclamation marks, no cheerleading, no quotes.")
+FALLBACK = ["You've been looking around a lot. Back to the task?",
+            "Eyes back on your work?",
+            "Quick reset: settle in and refocus.",
+            "Lots of looking around lately. Ready to refocus?"]
 
 
 class Coach:
@@ -25,9 +25,8 @@ class Coach:
     def nudge(self, summ):
         """Return (text, source) where source is 'ai' or 'fallback'."""
         if self.client:
-            prompt = (f"Last check-in window: distracted {summ['distracted_frac']:.0%} of the "
-                      f"time, average engagement score {summ['mean_z']:+.1f} (0 = their own "
-                      f"baseline, negative = drifting), signal noise {summ['artifact_frac']:.0%}.")
+            prompt = (f"In the last check-in window the user was looking around "
+                      f"{summ['distracted_frac']:.0%} of the time.")
             try:
                 r = self.client.responses.create(model=self.model, instructions=SYSTEM,
                                                  input=prompt)

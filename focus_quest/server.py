@@ -43,8 +43,8 @@ async def main(a):
     coach = Coach()
     src = DemoSource() if a.demo else LSLSource()
     chunk_s = a.chunk or (40 if a.demo else 180)
-    calib_s = a.calib or (15 if a.demo else 60)
-    eng = FocusEngine(src.fs, src.n_ch, calib_s=calib_s, thr=a.thr, hold_s=a.hold)
+    calib_s = a.calib or (10 if a.demo else 20)
+    eng = FocusEngine(src.fs, src.n_ch, calib_s=calib_s, factor=a.factor)
     clients = set()
     hello = {"type": "hello", "fs": src.fs, "demo": a.demo, "chunk_s": chunk_s,
              "calib_s": calib_s, "n_ch": src.n_ch, "labels": src.labels,
@@ -93,8 +93,7 @@ async def main(a):
                 s = eng.pop_chunk()
                 if s["steps"] == 0:
                     continue
-                drifted = (s["distracted_frac"] >= a.trigger and s["mean_z"] <= -0.5
-                           and s["artifact_frac"] < 0.5)
+                drifted = s["distracted_frac"] >= a.trigger
                 send({"type": "checkin", "n": n_chunk, "summary": s, "nudge": drifted})
                 if drifted:
                     text, how = await loop.run_in_executor(None, coach.nudge, s)
@@ -105,13 +104,11 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--demo", action="store_true", help="simulated EEG, no hardware")
     ap.add_argument("--chunk", type=int, default=0, help="check-in length in seconds (180)")
-    ap.add_argument("--calib", type=int, default=0, help="calibration seconds (60)")
+    ap.add_argument("--calib", type=int, default=0, help="calibration seconds (20)")
+    ap.add_argument("--factor", type=float, default=2.0,
+                    help="movement vs calibration that counts as drifting (lower = more sensitive)")
     ap.add_argument("--trigger", type=float, default=0.4,
                     help="share of the check-in spent drifting before Pip says anything")
-    ap.add_argument("--thr", type=float, default=1.2,
-                    help="how far below baseline counts as drifting (higher = fewer drifts)")
-    ap.add_argument("--hold", type=float, default=6.0,
-                    help="seconds the dip must last before DRIFTING shows")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--http-port", type=int, default=8000)
     try:

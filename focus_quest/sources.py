@@ -9,7 +9,7 @@ class LSLSource:
         from pylsl import StreamInlet, resolve_streams
         found = [s for s in resolve_streams(wait_time=3.0) if s.name() == name]
         if not found:
-            raise SystemExit(f"No '{name}' LSL stream found. Start knight_lsl_gui.py first "
+            raise SystemExit(f"No '{name}' LSL stream found. Start the board stream first "
                              "(or run this with --demo).")
         self.inlet = StreamInlet(found[0], max_buflen=10)
         info = self.inlet.info()
@@ -26,8 +26,7 @@ class LSLSource:
             or list(range(min(n, 8)))
         self.n_ch = len(self.idx)
         self.labels = [f"CH{i + 1}" for i in range(self.n_ch)]
-        print(f"[lsl] {n} channels at {self.fs:g} Hz, using {self.n_ch}: "
-              f"{[labels[i] if i < len(labels) else i for i in self.idx]}")
+        print(f"[lsl] {n} channels at {self.fs:g} Hz, using {self.n_ch}")
 
     def read(self):
         chunk, _ = self.inlet.pull_chunk(timeout=0.0, max_samples=1024)
@@ -35,13 +34,14 @@ class LSLSource:
 
 
 class DemoSource:
-    """Fake EEG: 40 s 'focused' (strong beta) then 40 s 'drifting' (strong alpha/theta)."""
+    """Fake EEG: 40 s still (focused), then 40 s with big eye movements (drifting)."""
     fs, n_ch = 125.0, 8
     labels = [f"CH{i + 1}" for i in range(8)]
 
     def __init__(self):
         self.t0, self.n, self.rng = time.monotonic(), 0, np.random.default_rng(1)
         self.gain = 0.7 + 0.6 * self.rng.random(self.n_ch)
+        self.front = np.array([1, 1, .7, .7, .4, .4, .25, .25])
 
     def read(self):
         target = int((time.monotonic() - self.t0) * self.fs)
@@ -50,10 +50,11 @@ class DemoSource:
             return None
         t = (self.n + np.arange(k)) / self.fs
         self.n = target
-        focus = (t // 40) % 2 == 0
-        a, th, b = (np.where(focus, x, y) for x, y in ((6, 22), (5, 16), (12, 4)))
+        drift = ((t // 40) % 2 == 1).astype(float)
         w = 2 * np.pi
-        return np.array([self.gain[c] * (a * np.sin(w * 10 * t + c * .7)
-                                         + th * np.sin(w * 6 * t + c)
-                                         + b * np.sin(w * 20 * t + c * .5))
+        eye = 45 * np.sign(np.sin(w * 0.8 * t + 2 * np.sin(w * 0.11 * t)))  # saccade-like jumps
+        return np.array([self.gain[c] * (6 * np.sin(w * 10 * t + c * .7)
+                                         + 5 * np.sin(w * 6 * t + c)
+                                         + 8 * np.sin(w * 20 * t + c * .5))
+                         + self.front[c] * eye * drift
                          + self.rng.normal(0, 3, k) for c in range(self.n_ch)])

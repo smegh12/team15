@@ -82,7 +82,7 @@ const BANDS=[['theta','THETA','4-8 Hz','#2dd4bf'],['alpha','ALPHA','8-13 Hz','#f
 const CHCOL=['#60a5fa','#a78bfa','#f472b6','#fb923c','#facc15','#4ade80','#2dd4bf','#38bdf8'];
 const $=id=>document.getElementById(id);
 const ST={idle:['STANDBY','#7f8bb5'],filling:['WARMING UP','#7f8bb5'],calibrating:['CALIBRATING','#60a5fa'],
-focused:['FOCUSED','#34d399'],distracted:['DRIFTING','#fb7185'],artifact:['SIGNAL LOST','#7f8bb5']};
+focused:['FOCUSED','#34d399'],distracted:['DRIFTING','#fb7185']};
 let fs=125,SHOW=375,NCH=8,LABELS=[],calibS=60,streak=0,ws,chMode='clean';
 let bandBuf={},chBuf={clean:[],raw:[]};
 function alloc(){SHOW=Math.round(fs*3);BANDS.forEach(([k])=>bandBuf[k]=new Float32Array(SHOW));
@@ -125,10 +125,10 @@ function onState(s){
   $('badge').textContent=s.state==='calibrating'?'CALIBRATING '+Math.ceil(s.left)+'s':lab;$('badge').style.color=col;
   const f=$('fill');f.style.color=col;f.style.background=col;
   f.style.width=(s.score==null?(s.state==='calibrating'?100*(1-s.left/Math.max(1,calibS)):50)
-    :Math.max(3,Math.min(100,(s.score+3)/6*100)))+'%';
+    :Math.max(3,s.score*100))+'%';
   if(s.state==='focused')streak+=.5;else if(s.state==='distracted')streak=0;
   $('streak').textContent=mmss(streak);
-  if(s.calib_failed&&!onState.warned){onState.warned=1;say('Not enough clean signal to calibrate. Check the electrodes and try again.','sys')}
+  if(s.calib_failed&&!onState.warned){onState.warned=1;say('Calibration got no data. Check the board is streaming, then try again.','sys')}
 }
 function connect(){
   ws=new WebSocket('ws://localhost:8765');
@@ -139,8 +139,8 @@ function connect(){
     if(m.type==='hello'){fs=m.fs;NCH=m.n_ch;LABELS=m.labels||[];calibS=m.calib_s;alloc();
       $('ai').textContent=m.ai?'AI: '+m.model:'built-in phrases';$('chat').innerHTML='';
       say(m.demo?'Demo mode: simulated signal. Calibrates automatically, then alternates focused and drifting every 40 s.'
-                :'Press CALIBRATE, then work on a focused task for 60 seconds.','sys');
-      say('Check-ins appear here only when focus drops for a sustained stretch.','sys');}
+                :'Press CALIBRATE, then do your normal work on the screen for '+m.calib_s+' seconds without looking away.','sys');
+      say('Check-ins appear here only if you look around a lot during a check-in.','sys');}
     else if(m.type==='frame'){
       if(m.bands)for(const k in m.bands)push(bandBuf[k],m.bands[k]);
       if(m.ch)for(const md of ['clean','raw'])m.ch[md].forEach((a,i)=>{if(chBuf[md][i])push(chBuf[md][i],a)});
@@ -151,7 +151,7 @@ function connect(){
   };
 }
 $('cal').onclick=()=>{if(ws&&ws.readyState===1)ws.send(JSON.stringify({cmd:'calibrate'}));
-  say('Calibrating. Work on a focused task and keep still.','sys');onState.warned=0};
+  say('Calibrating. Keep working on the screen and don\'t look away.','sys');onState.warned=0};
 $('chMode').onclick=()=>{chMode=chMode==='clean'?'raw':'clean';
   $('chMode').textContent=chMode==='clean'?'SHOW RAW':'SHOW FILTERED';
   $('chInfo').textContent=chMode==='clean'?'1-40 Hz filtered':'raw (offset removed)'};

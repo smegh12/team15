@@ -1,30 +1,12 @@
-"""Signal processing and the focus/drift state machine (no I/O here)."""
+"""Focus vs drift from eye/head movement only.
+
+Looking around shows up in EEG as large, slow deflections (0.5-10 Hz). We measure
+how big those are on each channel, compare to a calibration baseline recorded while
+the user works normally, and call it DRIFTING when movement stays well above it."""
 import numpy as np
 from scipy.signal import butter, iirnotch, sosfilt, sosfilt_zi, tf2sos
 
-BANDS = {"theta": (4, 8), "alpha": (8, 13), "beta": (13, 30)}
-ART_UV = 200.0  # peak-to-peak above this (after detrend) = blink/movement artifact
-
-
-def detrend(win):
-    t = np.linspace(-1, 1, win.shape[1])
-    slope = (win * t).sum(axis=1, keepdims=True) / (t * t).sum()
-    return win - win.mean(axis=1, keepdims=True) - slope * t
-
-
-def metrics(win, fs):
-    """Relative band powers + log engagement index beta/(alpha+theta); None if too noisy."""
-    win = detrend(win)
-    p2p = win.max(axis=1) - win.min(axis=1)
-    good = (p2p < ART_UV) & (p2p > 1.0)  # too big = artifact, too flat = no contact
-    if good.sum() < max(1, win.shape[0] // 2):
-        return None
-    psd = np.abs(np.fft.rfft(win[good] * np.hanning(win.shape[1]), axis=1)) ** 2
-    f = np.fft.rfftfreq(win.shape[1], 1 / fs)
-    p = {k: psd[:, (f >= lo) & (f < hi)].sum(axis=1).mean() for k, (lo, hi) in BANDS.items()}
-    tot = sum(p.values()) + 1e-12
-    eng = float(np.log((p["beta"] + 1e-12) / (p["alpha"] + p["theta"] + 1e-12)))
-    return {"logE": eng, **{k: v / tot for k, v in p.items()}}
+BANDS = {"theta": (4, 8), "alpha": (8, 13), "beta": (13, 30)}  # display only
 
 
 def display_sos(fs):
@@ -38,96 +20,95 @@ def display_sos(fs):
 
 
 class FocusEngine:
-    def __init__(self, fs, n_ch, calib_s=60.0, thr=1.2, hold_s=6.0, recover=0.75, win_s=4.0):
-        self.fs, self.calib_s, self.thr, self.hold_s, self.recover = fs, calib_s, thr, hold_s, recover
+    def __init__(self, fs, n_ch, calib_s=20.0, factor=2.0, on_s=1.0, off_s=2.0, win_s=2.0):
+        self.fs, self.calib_s, self.factor = fs, calib_s, factor
+        self.on_s, self.off_s = on_s, off_s
         self.N = int(fs * win_s)
         self.buf, self.filled = np.zeros((n_ch, self.N)), 0
         self.sos = {b: butter(3, e, btype="band", fs=fs, output="sos") for b, e in BANDS.items()}
         self.dsos = display_sos(fs)
-        self.zi, self.dzi = None, None
-        self.mode, self.calib, self.t_cal = "idle", [], 0.0
-        self.mu, self.sigma = 0.0, 1.0
-        self.ema, self.low_since, self.distracted = None, None, False
+        self.esos = butter(2, (0.5, 10.0), btype="band", fs=fs, output="sos")  # eye/head band
+        self.zi = self.dzi = self.ezi = self.dc = None
+        self.mode, self.calib, self.t_cal, self.base = "idle", [], 0.0, None
+        self.drifting, self.move_since, self.calm_since = False, None, None
         self.calib_failed = False
         self.reset_chunk()
 
     def reset_chunk(self):
-        self.c = {"steps": 0, "dist": 0, "art": 0, "z": []}
+        self.c = {"steps": 0, "dist": 0}
 
     def start_calibration(self, now):
         self.mode, self.calib, self.t_cal = "calibrating", [], now
-        self.ema, self.low_since, self.distracted = None, None, False
+        self.drifting, self.move_since, self.calm_since = False, None, None
         self.calib_failed = False
         self.reset_chunk()
 
     def push(self, data):
         """data: (n_ch, k) new samples -> (band traces of channel average, per-channel traces)."""
-        k = min(data.shape[1], self.N)
-        self.buf = np.roll(self.buf, -k, axis=1)
-        self.buf[:, -k:] = data[:, -k:]
-        self.filled += k
-        mean = data.mean(axis=0)
         if self.zi is None:  # start filters at the signal's offset to avoid a startup spike
-            self.zi = {b: sosfilt_zi(s) * mean[0] for b, s in self.sos.items()}
-            self.dzi = sosfilt_zi(self.dsos)[:, None, :] * data[:, :1][None, :, :]
+            m0 = data.mean(axis=0)[0]
+            self.zi = {b: sosfilt_zi(s) * m0 for b, s in self.sos.items()}
+            def init(sos):
+                return sosfilt_zi(sos)[:, None, :] * data[:, :1][None, :, :]
+            self.dzi, self.ezi = init(self.dsos), init(self.esos)
+            self.dc = data[:, 0].astype(float).copy()
+        mean = data.mean(axis=0)
         bands = {}
         for b, sos in self.sos.items():
             bands[b], self.zi[b] = sosfilt(sos, mean, zi=self.zi[b])
         clean, self.dzi = sosfilt(self.dsos, data, axis=1, zi=self.dzi)
-        n = min(self.filled, self.N)
-        raw = data - self.buf[:, -n:].mean(axis=1, keepdims=True)
-        return bands, {"clean": clean, "raw": raw}
+        eye, self.ezi = sosfilt(self.esos, data, axis=1, zi=self.ezi)
+        k = min(data.shape[1], self.N)
+        self.buf = np.roll(self.buf, -k, axis=1)
+        self.buf[:, -k:] = eye[:, -k:]
+        self.filled += k
+        self.dc = 0.9 * self.dc + 0.1 * data.mean(axis=1)
+        return bands, {"clean": clean, "raw": data - self.dc[:, None]}
 
     def update(self, now):
-        s = {"state": "idle", "score": None, "theta": 0.0, "alpha": 0.0, "beta": 0.0,
-             "left": 0.0, "calib_failed": self.calib_failed}
+        s = {"state": "idle", "score": None, "left": 0.0, "calib_failed": self.calib_failed}
         if self.filled < self.N:
             s["state"] = "filling"
             return s
-        m = metrics(self.buf, self.fs)
-        monitoring = self.mode == "monitoring"
-        if monitoring:
-            self.c["steps"] += 1
-        if m is None:
-            s["state"] = "artifact"
-            if monitoring:
-                self.c["art"] += 1
-            return s
-        s.update({k: round(m[k], 3) for k in BANDS})
+        amp = self.buf.std(axis=1)  # movement level per channel (uV)
         if self.mode == "calibrating":
-            self.calib.append(m["logE"])
+            self.calib.append(amp)
             s["state"], s["left"] = "calibrating", max(0.0, self.calib_s - (now - self.t_cal))
             if s["left"] <= 0:
                 self._finish()
-        elif monitoring:
-            z = (m["logE"] - self.mu) / self.sigma
-            self.ema = z if self.ema is None else 0.5 * self.ema + 0.5 * z
-            if self.ema < -self.thr:
-                self.low_since = self.low_since or now
-                if now - self.low_since >= self.hold_s:  # must stay low the whole time
-                    self.distracted = True
-            else:
-                self.low_since = None
-                if self.ema > -self.thr * self.recover:  # snap back to focused quickly
-                    self.distracted = False
-            s["score"] = float(np.clip(self.ema, -4, 4))
-            s["state"] = "distracted" if self.distracted else "focused"
-            self.c["z"].append(self.ema)
-            self.c["dist"] += self.distracted
+            return s
+        if self.mode != "monitoring":
+            return s
+        ratio = float(np.sort(amp / self.base)[-3:].mean())  # 3 most-moving channels
+        if ratio > self.factor:  # moving a lot
+            self.calm_since = None
+            self.move_since = self.move_since or now
+            if now - self.move_since >= self.on_s:
+                self.drifting = True
+        elif ratio < self.factor * 0.8:  # clearly still
+            self.move_since = None
+            self.calm_since = self.calm_since or now
+            if now - self.calm_since >= self.off_s:
+                self.drifting = False
+        else:  # in between: keep the current state
+            self.move_since = self.calm_since = None
+        focus = 1 - (ratio - 1) / (2 * max(self.factor - 1, 0.1))
+        s["score"] = round(float(np.clip(focus, 0, 1)), 3)
+        s["movement"] = round(ratio, 2)
+        s["state"] = "distracted" if self.drifting else "focused"
+        self.c["steps"] += 1
+        self.c["dist"] += self.drifting
         return s
 
     def _finish(self):
-        v = np.array(self.calib)
-        if len(v) < 10:
+        if len(self.calib) < 5:
             self.mode, self.calib_failed = "idle", True
             return
-        self.mu, self.sigma, self.mode = float(v.mean()), max(float(v.std()), 0.1), "monitoring"
+        self.base = np.maximum(np.median(np.array(self.calib), axis=0), 0.5)
+        self.mode = "monitoring"
         self.reset_chunk()
 
     def pop_chunk(self):
         c = self.c
         self.reset_chunk()
-        clean = max(c["steps"] - c["art"], 1)
-        return {"steps": c["steps"], "distracted_frac": round(c["dist"] / clean, 2),
-                "artifact_frac": round(c["art"] / max(c["steps"], 1), 2),
-                "mean_z": round(float(np.mean(c["z"])), 2) if c["z"] else 0.0}
+        return {"steps": c["steps"], "distracted_frac": round(c["dist"] / max(c["steps"], 1), 2)}
